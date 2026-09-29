@@ -37,7 +37,7 @@ TEXT = {
             "HUMAN MEMORY MINI PROJECT - PILOT\n\n"
             "This is a shortened pilot version used to check timing,\n"
             "difficulty, instructions, and data saving.\n\n"
-            "The full experiment should use more repetitions.\n\n"
+            "The full experiment runs every configured trial once.\n\n"
             "Press SPACE to begin.\n\n"
             "Click SKIP TRIAL on the trial instruction screen to skip it."
         ),
@@ -61,7 +61,7 @@ TEXT = {
             "MINIPROJEKT OM MENNESKELIG HUKOMMELSE - PILOT\n\n"
             "Dette er en forkortet pilotversion, der bruges til at kontrollere\n"
             "timing, sværhedsgrad, instruktioner og datalagring.\n\n"
-            "Det fulde eksperiment bør bruge flere gentagelser.\n\n"
+            "Det fulde eksperiment gennemfører hvert konfigureret forsøg én gang.\n\n"
             "Tryk på MELLEMRUMSTASTEN for at begynde.\n\n"
             "Klik på SPRING OVER på forsøgsinstruktionsskærmen for at springe det over."
         ),

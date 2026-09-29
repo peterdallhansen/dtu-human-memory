@@ -20,11 +20,40 @@ Run the pilot from the project root:
 python pilot.py
 ```
 
+Run only one pilot section when checking a specific task:
+
+```bash
+python pilot.py --experiment free
+python pilot.py --experiment capacity
+python pilot.py --experiment phonological
+python pilot.py --experiment chunking
+```
+
+Multiple sections can be selected in one command and run in the order given:
+
+```bash
+python pilot.py --experiment chunking phonological
+```
+
+The same section can be repeated to run another block of that task:
+
+```bash
+python pilot.py --experiment chunking chunking
+```
+
+The available values are `all` (the default), `free`, `capacity`,
+`phonological`, and `chunking`. Do not combine `all` with another value.
+The pilot `chunking` section contains six trials: three chunked and three
+nonchunked.
+
 Run the final experiment after checking the pilot:
 
 ```bash
 python experiment.py
 ```
+
+The final runner executes the 12 configured final trials once, with no
+repetition blocks or scheduled breaks.
 
 Both runners save CSV files under `data/`.
 

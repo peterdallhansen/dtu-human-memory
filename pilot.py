@@ -4,25 +4,64 @@ Run this file before collecting final data to check timing, instructions,
 difficulty, and data saving.
 """
 
-from pathlib import Path
+import argparse
 import json
 import re
-
-from psychopy import core
+from pathlib import Path
 
 from config import common, free_recall, serial_capacity
 from config import serial_chunking, serial_phonological
-from runtime import MemoryExperiment
 
 
 DATA_DIR = Path("data")
-EXPERIMENT_VERSION = "pilot_v1"
-TOTAL_TRIALS = (
-    len(free_recall.CONDITIONS)
-    + len(serial_capacity.LENGTHS)
-    + 2 * len(serial_phonological.SECONDARY_TASKS)
-    + 4
-)
+EXPERIMENT_VERSION = "pilot_v5"
+PILOT_CHUNKING_CONDITIONS = ["chunked"] * 3 + ["nonchunked"] * 3
+EXPERIMENT_TRIAL_COUNTS = {
+    "free": len(free_recall.CONDITIONS),
+    "capacity": len(serial_capacity.LENGTHS),
+    "phonological": 2 * len(serial_phonological.SECONDARY_TASKS),
+    "chunking": len(PILOT_CHUNKING_CONDITIONS),
+}
+TOTAL_TRIALS = sum(EXPERIMENT_TRIAL_COUNTS.values())
+
+
+core = None
+MemoryExperiment = None
+
+
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(
+        description="Run the human-memory pilot or one of its sections."
+    )
+    parser.add_argument(
+        "--experiment",
+        nargs="+",
+        action="append",
+        choices=("all", *EXPERIMENT_TRIAL_COUNTS),
+        default=None,
+        metavar="SECTION",
+        help="Section(s) to run in order (default: all).",
+    )
+    args = parser.parse_args(argv)
+    selections = (
+        [section for group in args.experiment for section in group]
+        if args.experiment
+        else ["all"]
+    )
+    if "all" in selections and len(selections) > 1:
+        parser.error("'all' cannot be combined with another section")
+    args.experiment = selections
+    return args
+
+
+def load_runtime():
+    global core, MemoryExperiment
+
+    from psychopy import core as psychopy_core
+    from runtime import MemoryExperiment as memory_experiment
+
+    core = psychopy_core
+    MemoryExperiment = memory_experiment
 
 
 def run_working_memory_distractor(experiment, seconds):
@@ -80,12 +119,28 @@ def run_quiet_pause(experiment, seconds):
         experiment.small_text.pos = (0, 0)
 
 
+def make_random_free_recall_lists(experiment):
+    vocabulary = free_recall.VOCABULARY[experiment.language]
+    words_needed = len(free_recall.CONDITIONS) * free_recall.LIST_LENGTH
+    sampled_words = experiment.rng.sample(vocabulary, words_needed)
+
+    return [
+        (
+            f"random_{trial}",
+            sampled_words[start : start + free_recall.LIST_LENGTH],
+        )
+        for trial, start in enumerate(
+            range(0, words_needed, free_recall.LIST_LENGTH),
+            1,
+        )
+    ]
+
+
 def run_free_recall(experiment):
     experiment.show_message(experiment.text(free_recall, "intro"))
 
-    all_lists = list(free_recall.LISTS[experiment.language].items())
+    all_lists = make_random_free_recall_lists(experiment)
     conditions = free_recall.CONDITIONS.copy()
-    experiment.rng.shuffle(all_lists)
     experiment.rng.shuffle(conditions)
 
     for trial, (condition, (list_id, words)) in enumerate(
@@ -106,7 +161,7 @@ def run_free_recall(experiment):
                     if condition["post_task"] != "immediate"
                     else 0.0
                 ),
-                "notes": "pilot",
+                "notes": "pilot randomized vocabulary",
             }
         ):
             ready = experiment.text(
@@ -169,7 +224,7 @@ def run_free_recall(experiment):
                     "distractor_start": distractor_start,
                     "distractor_response": distractor_response,
                     "distractor_correct_count": distractor_correct,
-                    "notes": "pilot",
+                    "notes": "pilot randomized vocabulary",
                 }
             )
         experiment.maybe_break()
@@ -306,18 +361,25 @@ def run_phonological(experiment):
         experiment.maybe_break()
 
 
+def make_chunked_groups(experiment, language):
+    return experiment.rng.sample(
+        serial_chunking.BASES[language],
+        serial_chunking.GROUPS_PER_TRIAL,
+    )
+
+
 def make_nonchunked_groups(experiment, groups):
-    original_words = set(groups)
+    real_chunks = set(serial_chunking.BASES[experiment.language])
     letters = list("".join(groups))
+    group_size = len(groups[0])
 
     for _ in range(1000):
         experiment.rng.shuffle(letters)
         candidate = [
-            "".join(letters[0:3]),
-            "".join(letters[3:6]),
-            "".join(letters[6:9]),
+            "".join(letters[start : start + group_size])
+            for start in range(0, len(letters), group_size)
         ]
-        if all(group not in original_words for group in candidate):
+        if all(group not in real_chunks for group in candidate):
             return candidate
 
     return candidate
@@ -326,12 +388,11 @@ def make_nonchunked_groups(experiment, groups):
 def run_chunking(experiment):
     experiment.show_message(experiment.text(serial_chunking, "intro"))
 
-    bases = [group.copy() for group in serial_chunking.BASES[experiment.language]]
-    conditions = ["chunked", "chunked", "nonchunked", "nonchunked"]
-    experiment.rng.shuffle(bases)
+    conditions = PILOT_CHUNKING_CONDITIONS.copy()
     experiment.rng.shuffle(conditions)
 
-    for base_index, (groups, condition) in enumerate(zip(bases, conditions), 1):
+    for condition in conditions:
+        groups = make_chunked_groups(experiment, experiment.language)
         display_groups = (
             groups
             if condition == "chunked"
@@ -346,7 +407,7 @@ def run_chunking(experiment):
                 "stimulus": "|".join(display_groups),
                 "presentation_duration_s": common.CHUNK_GROUP_DURATION,
                 "post_list_delay_s": 0,
-                "notes": "pilot chunking",
+                "notes": "pilot six-group chunking",
             }
         ):
             experiment.show_message(
@@ -382,26 +443,14 @@ def run_chunking(experiment):
                     "accuracy": round(score["accuracy"], 4),
                     "whole_sequence_correct": score["whole_sequence_correct"],
                     "position_correct": json.dumps(score["position_correct"]),
-                    "notes": "pilot chunking",
+                    "notes": "pilot six-group chunking",
                 }
             )
         experiment.maybe_break()
 
 
-def main():
-    experiment = MemoryExperiment(
-        data_dir=DATA_DIR,
-        experiment_version=EXPERIMENT_VERSION,
-        total_trials=TOTAL_TRIALS,
-        break_every=None,
-        filename_prefix="pilot",
-        seed_scope="day",
-        default_participant_id="pilot",
-    )
-
-    try:
-        experiment.show_message(experiment.text(common, "initial"))
-
+def run_selected_experiments(experiment, selections):
+    if selections == ["all"]:
         task_order = ["free", "serial"]
         if sum(ord(char) for char in experiment.participant_id) % 2 == 1:
             task_order.reverse()
@@ -413,6 +462,39 @@ def main():
                 run_capacity(experiment)
                 run_phonological(experiment)
                 run_chunking(experiment)
+        return
+
+    runners = {
+        "free": run_free_recall,
+        "capacity": run_capacity,
+        "phonological": run_phonological,
+        "chunking": run_chunking,
+    }
+    for selection in selections:
+        runners[selection](experiment)
+
+
+def main(argv=None):
+    args = parse_args(argv)
+    load_runtime()
+    experiment = MemoryExperiment(
+        data_dir=DATA_DIR,
+        experiment_version=EXPERIMENT_VERSION,
+        total_trials=(
+            TOTAL_TRIALS
+            if args.experiment == ["all"]
+            else sum(EXPERIMENT_TRIAL_COUNTS[name] for name in args.experiment)
+        ),
+        break_every=None,
+        filename_prefix="pilot",
+        seed_scope="session",
+        default_participant_id="pilot",
+    )
+
+    try:
+        experiment.show_message(experiment.text(common, "initial"))
+
+        run_selected_experiments(experiment, args.experiment)
 
         experiment.show_message(
             experiment.text(common, "complete", data_path=experiment.data_path)

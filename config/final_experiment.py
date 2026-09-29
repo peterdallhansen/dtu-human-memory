@@ -1,26 +1,67 @@
 """Design settings for the full memory experiment."""
 
-FREE_RECALL_REPETITIONS = 4
-CAPACITY_REPETITIONS = 4
-PHONOLOGICAL_REPETITIONS = 4
-CHUNKING_REPETITIONS = 4
+from . import serial_chunking
 
-BREAK_EVERY_TRIALS = 12
-
-# Each repetition contains four free-recall, three capacity,
-# six phonological, and four chunking trials.
-TRIALS_PER_REPETITION = {
-    "free_recall": 4,
-    "capacity": 3,
-    "phonological": 6,
-    "chunking": 4,
+EXPERIMENTS = {
+    "free_recall": [
+        {
+            "condition": "slow_immediate",
+            "word_duration": 2.0,
+            "list_length": 15,
+            "post_task": "immediate",
+        },
+        {
+            "condition": "fast_immediate",
+            "word_duration": 0.75,
+            "list_length": 15,
+            "post_task": "immediate",
+        },
+        {
+            "condition": "slow_wm",
+            "word_duration": 2.0,
+            "list_length": 15,
+            "post_task": "working_memory",
+        },
+        {
+            "condition": "slow_pause",
+            "word_duration": 2.0,
+            "list_length": 15,
+            "post_task": "pause",
+        },
+    ],
+    "capacity": {
+        "lengths": [4, 6, 8, 10],
+    },
+    "phonological": [
+        {
+            "condition": "confusable",
+            "secondary_task": "normal",
+            "number_of_letters": 6,
+        },
+        {
+            "condition": "nonconfusable",
+            "secondary_task": "normal",
+            "number_of_letters": 6,
+        },
+    ],
+    "chunking": {
+        "groups_per_trial": 6,
+        "letters_per_group": 3,
+        "conditions": ["chunked", "nonchunked"],
+    },
 }
 
-TOTAL_TRIALS = (
-    FREE_RECALL_REPETITIONS * TRIALS_PER_REPETITION["free_recall"]
-    + CAPACITY_REPETITIONS * TRIALS_PER_REPETITION["capacity"]
-    + PHONOLOGICAL_REPETITIONS * TRIALS_PER_REPETITION["phonological"]
-    + CHUNKING_REPETITIONS * TRIALS_PER_REPETITION["chunking"]
-)
 
-EXPERIMENT_VERSION = "final_v1"
+def trial_count(settings):
+    if isinstance(settings, list):
+        return len(settings)
+    if "lengths" in settings:
+        return len(settings["lengths"])
+    if "conditions" in settings:
+        return len(settings["conditions"])
+    return 1
+
+
+TOTAL_TRIALS = sum(trial_count(settings) for settings in EXPERIMENTS.values())
+
+EXPERIMENT_VERSION = "final_v7"
