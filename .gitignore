@@ -1,0 +1,30 @@
+# Python environments and caches
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Notebook and local tooling state
+.ipynb_checkpoints/
+.DS_Store
+
+# Collected participant data
+data/**/*.csv
+data/**/*.tsv
+data/**/*.parquet
+
+# Generated analysis output
+pilot_analysis/
+final_analysis/
+
+# Knowledge-graph and other local generated artifacts
+graphify-out/
+
+# Logs and local environment files
+*.log
+.env
+.env.*
