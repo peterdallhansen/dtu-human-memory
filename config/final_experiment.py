@@ -43,6 +43,16 @@ EXPERIMENTS = {
             "secondary_task": "normal",
             "number_of_letters": 6,
         },
+        {
+            "condition": "nonconfusable",
+            "secondary_task": "suppression",
+            "number_of_letters": 6,
+        },
+        {
+            "secondary_task": "tapping",
+            "condition": "nonconfusable",
+            "number_of_letters": 6,
+        },
     ],
     "chunking": {
         "groups_per_trial": 6,
@@ -64,4 +74,4 @@ def trial_count(settings):
 
 TOTAL_TRIALS = sum(trial_count(settings) for settings in EXPERIMENTS.values())
 
-EXPERIMENT_VERSION = "final_v7"
+EXPERIMENT_VERSION = "final_v9"

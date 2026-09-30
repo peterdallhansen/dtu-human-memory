@@ -11,6 +11,7 @@ from analysis_utils import (
     bootstrap_difference,
     bootstrap_mean,
     load_data as _load_data,
+    make_paper_figures as _make_paper_figures,
     parse_binary_list,
     pilot_checks as _pilot_checks,
     serial_error_counts,
@@ -50,6 +51,11 @@ def analyse_errors(df):
 
 def pilot_checks(df):
     return _pilot_checks(df, OUT_DIR)
+
+
+def make_paper_figures(df):
+    """Export the composite figures and vector files used by the paper."""
+    return _make_paper_figures(df, OUT_DIR)
 
 
 def main():

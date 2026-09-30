@@ -92,6 +92,7 @@ class MemoryExperiment:
             units="height",
         )
         self.kb = keyboard.Keyboard()
+        self._fullscreen_toggle_clock = core.Clock()
         self.mouse = event.Mouse(win=self.win)
         self._skip_button_pressed = False
 
@@ -212,18 +213,31 @@ class MemoryExperiment:
             self.kb.clearEvents()
 
     def get_keys(self, key_list=None):
+        # Always listen for F11 so fullscreen can be changed from any screen.
+        requested_keys = None if key_list is None else list(key_list)
+        if requested_keys is not None and "f11" not in requested_keys:
+            requested_keys.append("f11")
         if self.kb.getBackend() == "event":
-            return event.getKeys(keyList=key_list)
+            return event.getKeys(keyList=requested_keys)
         return self.kb.getKeys(
-            keyList=key_list,
+            keyList=requested_keys,
             waitRelease=False,
             clear=True,
         )
 
     def check_escape(self, keys):
-        if any(self.key_name(key) in ("escape", "esc") for key in keys):
+        names = [self.key_name(key) for key in keys]
+        if "f11" in names and self._fullscreen_toggle_clock.getTime() > 0.3:
+            self.toggle_fullscreen()
+            self._fullscreen_toggle_clock.reset()
+        if any(name in ("escape", "esc") for name in names):
             self.close()
             core.quit()
+
+    def toggle_fullscreen(self):
+        """Toggle fullscreen without restarting the experiment."""
+        self.win.fullscr = not self.win.fullscr
+        self.win.flip()
 
     def draw_skip_button(self):
         self.skip_button.draw()

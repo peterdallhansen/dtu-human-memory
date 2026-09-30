@@ -3,6 +3,8 @@
 PILOT_MODE = True
 
 WINDOW_SIZE = (1100, 720)
+# Start windowed so the experiment can be moved to the participant display.
+# Press F11 once the window is on that display to enter fullscreen.
 FULLSCREEN = True
 
 SLOW_WORD_DURATION = 2.0

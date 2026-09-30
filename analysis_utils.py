@@ -9,6 +9,109 @@ import numpy as np
 import pandas as pd
 
 
+PAPER_COLORS = {
+    "slow_immediate": "#1b4965",
+    "fast_immediate": "#ca6702",
+    "slow_wm": "#9b2226",
+    "slow_pause": "#2a9d8f",
+    "confusable": "#9b2226",
+    "nonconfusable": "#1b4965",
+    "normal": "#1b4965",
+    "tapping": "#2a9d8f",
+    "suppression": "#ca6702",
+    "chunked": "#2a9d8f",
+    "nonchunked": "#1b4965",
+}
+
+PAPER_LABELS = {
+    "slow_immediate": "Immediate",
+    "fast_immediate": "Fast presentation",
+    "slow_wm": "Working-memory task",
+    "slow_pause": "Quiet pause",
+    "confusable": "Phonologically similar",
+    "nonconfusable": "Phonologically dissimilar",
+    "normal": "Normal",
+    "tapping": "Finger tapping",
+    "suppression": "Articulatory suppression",
+    "chunked": "Chunked",
+    "nonchunked": "Unchunked",
+}
+
+
+def _paper_style():
+    """Use a restrained style suitable for figures imported into a paper."""
+    return {
+        "font.family": "DejaVu Sans",
+        "font.size": 9,
+        "axes.titlesize": 10,
+        "axes.labelsize": 9,
+        "xtick.labelsize": 8,
+        "ytick.labelsize": 8,
+        "axes.spines.top": False,
+        "axes.spines.right": False,
+        "axes.linewidth": 0.8,
+        "grid.color": "#d9dde2",
+        "grid.linewidth": 0.6,
+        "grid.alpha": 0.7,
+        "legend.frameon": False,
+        "savefig.facecolor": "white",
+        "figure.facecolor": "white",
+    }
+
+
+def _save_paper_figure(fig, out_dir, stem):
+    """Export raster and vector versions for inspection and Overleaf."""
+    for extension, kwargs in (("pdf", {}), ("svg", {}), ("png", {"dpi": 300})):
+        fig.savefig(
+            Path(out_dir) / f"{stem}.{extension}",
+            bbox_inches="tight",
+            pad_inches=0.03,
+            **kwargs,
+        )
+
+
+def _ci_band(ax, x, values, color, label, marker="o"):
+    estimates = []
+    lowers = []
+    uppers = []
+    for value in values:
+        estimate, lower, upper = bootstrap_mean(value)
+        estimates.append(estimate)
+        lowers.append(lower)
+        uppers.append(upper)
+    estimates = np.asarray(estimates, dtype=float)
+    lowers = np.asarray(lowers, dtype=float)
+    uppers = np.asarray(uppers, dtype=float)
+    ax.plot(x, estimates, color=color, marker=marker, linewidth=1.8, markersize=3.8,
+            label=label, zorder=3)
+    if np.isfinite(lowers).all() and np.isfinite(uppers).all():
+        ax.fill_between(x, lowers, uppers, color=color, alpha=0.16, linewidth=0,
+                        zorder=1)
+    return estimates, lowers, uppers
+
+
+def _bar_with_ci(ax, summary, order, title, ylabel="Proportion correct"):
+    summary = summary.set_index("condition").reindex(order).dropna(how="all").reset_index()
+    x = np.arange(len(summary))
+    colors = [PAPER_COLORS.get(condition, "#4c566a") for condition in summary["condition"]]
+    ax.bar(x, summary["estimate"], color=colors, width=0.62, alpha=0.92)
+    error_low = summary["estimate"] - summary["ci95_low"]
+    error_high = summary["ci95_high"] - summary["estimate"]
+    finite = np.isfinite(error_low) & np.isfinite(error_high)
+    if finite.any():
+        ax.errorbar(x[finite], summary.loc[finite, "estimate"],
+                    yerr=[error_low[finite], error_high[finite]], fmt="none",
+                    ecolor="#222222", elinewidth=1, capsize=3, capthick=1, zorder=4)
+    ax.set_xticks(x, [PAPER_LABELS.get(c, c) for c in summary["condition"]], rotation=20,
+                  ha="right")
+    ax.set_title(title, loc="left", fontweight="bold")
+    ax.set_ylabel(ylabel)
+    ax.set_ylim(0, 1.05)
+    ax.yaxis.set_major_formatter(lambda value, _: f"{value:.0%}")
+    ax.grid(axis="y")
+    return summary
+
+
 def _prepare_output_dir(out_dir):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -338,16 +441,10 @@ def analyse_capacity(df, out_dir):
         summary["sequence_length"],
         summary["mean_position_accuracy"],
         marker="o",
-        label="Position accuracy",
-    )
-    plt.plot(
-        summary["sequence_length"],
-        summary["whole_sequence_accuracy"],
-        marker="o",
-        label="Whole-sequence accuracy",
+        label="Item-level accuracy",
     )
     plt.xlabel("Sequence length")
-    plt.ylabel("Accuracy")
+    plt.ylabel("Proportion of items recalled correctly")
     plt.ylim(-0.05, 1.05)
     plt.legend()
     plt.tight_layout()
@@ -403,13 +500,13 @@ def analyse_phonological(df, out_dir):
         ),
         (
             "Articulatory suppression cost",
-            values(None, "normal"),
-            values(None, "suppression"),
+            values("nonconfusable", "normal"),
+            values("nonconfusable", "suppression"),
         ),
         (
             "Finger-tapping control",
-            values(None, "normal"),
-            values(None, "tapping"),
+            values("nonconfusable", "normal"),
+            values("nonconfusable", "tapping"),
         ),
     ]
 
@@ -593,6 +690,231 @@ def quality_checks(df, out_dir):
 pilot_checks = quality_checks
 
 
+def make_paper_figures(df, out_dir):
+    """Create the four composite figures described in the paper plan.
+
+    Confidence intervals are percentile bootstrap intervals over completed
+    trials. The corresponding CSV files make every plotted value auditable.
+    Missing sections are skipped rather than producing misleading empty plots.
+    """
+    out_dir = _prepare_output_dir(out_dir)
+    df = completed_trials(df)
+    plt.rcParams.update(_paper_style())
+
+    # Figure 1 and 2: free recall serial-position curves and region effects.
+    free = df[df["section"] == "free_recall"].copy()
+    curves = []
+    regions = []
+    for _, row in free.iterrows():
+        correctness = parse_binary_list(row.get("position_correct", ""))
+        if len(correctness) < 3:
+            continue
+        curves.extend({
+            "condition": row["condition"],
+            "position": position,
+            "correct": correct,
+        } for position, correct in enumerate(correctness, start=1))
+        edge = min(4, len(correctness) // 3)
+        regions.append({
+            "condition": row["condition"],
+            "early": np.mean(correctness[:edge]),
+            "middle": np.mean(correctness[edge:-edge]),
+            "late": np.mean(correctness[-edge:]),
+            "primacy": np.mean(correctness[:edge]) - np.mean(correctness[edge:-edge]),
+            "recency": np.mean(correctness[-edge:]) - np.mean(correctness[edge:-edge]),
+        })
+
+    if curves:
+        curves = pd.DataFrame(curves)
+        regions = pd.DataFrame(regions)
+        position_values = []
+        curve_rows = []
+        for condition, sub in curves.groupby("condition"):
+            positions = sorted(sub["position"].unique())
+            position_values.extend(positions)
+
+        fig, ax = plt.subplots(figsize=(6.4, 4.0), constrained_layout=True)
+        for condition, sub in curves.groupby("condition"):
+            positions = sorted(sub["position"].unique())
+            values = [sub.loc[sub["position"] == position, "correct"].values
+                      for position in positions]
+            estimates, lowers, uppers = _ci_band(
+                ax, positions, values, PAPER_COLORS.get(condition, "#4c566a"),
+                PAPER_LABELS.get(condition, condition))
+            curve_rows.extend({
+                "condition": condition,
+                "position": position,
+                "estimate": estimate,
+                "ci95_low": lower,
+                "ci95_high": upper,
+                "n_trials": len(values[index]),
+            } for index, (position, estimate, lower, upper) in enumerate(
+                zip(positions, estimates, lowers, uppers)
+            ))
+        ax.set_title("Free-recall serial-position curves", loc="left", fontweight="bold")
+        ax.set_xlabel("Word position")
+        ax.set_ylabel("Proportion recalled")
+        ax.set_ylim(0, 1.05)
+        ax.set_xlim(min(position_values) - 0.3, max(position_values) + 0.3)
+        ax.set_xticks(position_values)
+        ax.yaxis.set_major_formatter(lambda value, _: f"{value:.0%}")
+        ax.grid(axis="y")
+        ax.legend(ncol=2, loc="upper center", bbox_to_anchor=(0.5, -0.17))
+        _save_paper_figure(fig, out_dir, "figure_1_free_recall")
+        plt.close(fig)
+        pd.DataFrame(curve_rows).to_csv(out_dir / "figure_1_free_recall.csv", index=False)
+
+        region_rows = []
+        for condition, sub in regions.groupby("condition"):
+            for metric in ("early", "middle", "late", "primacy", "recency"):
+                estimate, lower, upper = bootstrap_mean(sub[metric].values)
+                region_rows.append({
+                    "condition": condition,
+                    "metric": metric,
+                    "estimate": estimate,
+                    "ci95_low": lower,
+                    "ci95_high": upper,
+                    "n_trials": len(sub),
+                })
+        region_summary = pd.DataFrame(region_rows)
+        region_summary.to_csv(out_dir / "figure_2_free_recall_effects.csv", index=False)
+
+        fig, axes = plt.subplots(1, 2, figsize=(6.4, 3.2), sharey=True,
+                                 constrained_layout=True)
+        for ax, metric, title, order in (
+            (axes[0], "primacy", "A  Primacy effect", ["slow_immediate", "fast_immediate"]),
+            (axes[1], "recency", "B  Recency effect",
+             ["slow_immediate", "slow_wm", "slow_pause"]),
+        ):
+            _bar_with_ci(
+                ax,
+                region_summary[region_summary["metric"] == metric].rename(
+                    columns={"estimate": "estimate", "ci95_low": "ci95_low",
+                             "ci95_high": "ci95_high"}),
+                order,
+                title,
+                ylabel="Effect relative to middle",
+            )
+            ax.axhline(0, color="#222222", linewidth=0.8)
+        axes[0].set_ylabel("Proportion difference")
+        _save_paper_figure(fig, out_dir, "figure_2_primacy_recency")
+        plt.close(fig)
+
+    # Figure 3: item-level accuracy is the primary capacity measure.
+    capacity = df[df["section"] == "serial_capacity"].copy()
+    if not capacity.empty:
+        rows = []
+        for length, sub in capacity.groupby("sequence_length"):
+            values = pd.to_numeric(sub["accuracy"], errors="coerce").dropna().values
+            estimate, lower, upper = bootstrap_mean(values)
+            rows.append({"sequence_length": int(length), "estimate": estimate,
+                         "ci95_low": lower, "ci95_high": upper, "n_trials": len(values)})
+        summary = pd.DataFrame(rows).sort_values("sequence_length")
+        summary.to_csv(out_dir / "figure_3_serial_capacity.csv", index=False)
+        fig, ax = plt.subplots(figsize=(5.4, 3.7), constrained_layout=True)
+        x = summary["sequence_length"].to_numpy()
+        ax.plot(x, summary["estimate"], color="#1b4965", marker="o", linewidth=1.8,
+                markersize=5)
+        if summary["ci95_low"].notna().all():
+            ax.fill_between(x, summary["ci95_low"], summary["ci95_high"],
+                            color="#1b4965", alpha=0.16, linewidth=0)
+        ax.set_title("Serial-recall capacity", loc="left", fontweight="bold")
+        ax.set_xlabel("Sequence length")
+        ax.set_ylabel("Proportion of items recalled correctly")
+        ax.set_ylim(0, 1.05)
+        ax.set_xticks(x)
+        ax.yaxis.set_major_formatter(lambda value, _: f"{value:.0%}")
+        ax.grid(axis="y")
+        _save_paper_figure(fig, out_dir, "figure_3_serial_capacity")
+        plt.close(fig)
+
+    # Figure 4: phonological similarity, error composition, chunking, and controls.
+    phonological = df[df["section"] == "serial_phonological"].copy()
+    chunking = df[df["section"] == "serial_chunking"].copy()
+    if not phonological.empty or not chunking.empty:
+        fig, axes = plt.subplots(2, 2, figsize=(7.0, 5.6), constrained_layout=True)
+
+        similarity_rows = []
+        for condition, sub in phonological[
+            phonological["subcondition"] == "normal"
+        ].groupby("condition"):
+            estimate, lower, upper = bootstrap_mean(
+                pd.to_numeric(sub["accuracy"], errors="coerce")
+            )
+            similarity_rows.append({
+                "condition": condition,
+                "estimate": estimate,
+                "ci95_low": lower,
+                "ci95_high": upper,
+            })
+        if similarity_rows:
+            _bar_with_ci(
+                axes[0, 0],
+                pd.DataFrame(similarity_rows),
+                ["nonconfusable", "confusable"],
+                "A  Phonological similarity",
+            )
+        else:
+            axes[0, 0].set_visible(False)
+
+        chunk_rows = []
+        for condition, sub in chunking.groupby("condition"):
+            estimate, lower, upper = bootstrap_mean(pd.to_numeric(sub["accuracy"], errors="coerce"))
+            chunk_rows.append({"condition": condition, "estimate": estimate,
+                               "ci95_low": lower, "ci95_high": upper})
+        if chunk_rows:
+            _bar_with_ci(axes[0, 1], pd.DataFrame(chunk_rows),
+                         ["nonchunked", "chunked"], "B  Chunking")
+        else:
+            axes[0, 1].set_visible(False)
+
+        task_rows = []
+        control_phonological = phonological[
+            phonological["condition"] == "nonconfusable"
+        ]
+        for condition, sub in control_phonological.groupby("subcondition"):
+            estimate, lower, upper = bootstrap_mean(pd.to_numeric(sub["accuracy"], errors="coerce"))
+            task_rows.append({"condition": condition, "estimate": estimate,
+                              "ci95_low": lower, "ci95_high": upper})
+        if task_rows:
+            _bar_with_ci(axes[1, 0], pd.DataFrame(task_rows),
+                         ["normal", "tapping", "suppression"],
+                         "C  Interference controls (nonconfusable letters)")
+        else:
+            axes[1, 0].set_visible(False)
+
+        error_rows = []
+        for _, row in phonological.iterrows():
+            counts = serial_error_counts(str(row["stimulus"]).replace("|", ""), str(row["response"]))
+            total_errors = sum(count for kind, count in counts.items() if kind != "correct")
+            if total_errors:
+                error_rows.extend({"condition": row["subcondition"],
+                                   "error_type": error_type, "proportion": count / total_errors}
+                                  for error_type, count in counts.items()
+                                  if error_type != "correct")
+        if error_rows:
+            error_summary = pd.DataFrame(error_rows).groupby(["condition", "error_type"])["proportion"].mean().unstack(fill_value=0)
+            error_summary = error_summary.reindex(columns=["transposition", "omission", "intrusion"], fill_value=0)
+            error_summary.plot(kind="bar", stacked=True, ax=axes[1, 1],
+                               color=["#9b2226", "#ca6702", "#6c757d"], width=0.65)
+            axes[1, 1].set_title("D  Error composition", loc="left", fontweight="bold")
+            axes[1, 1].set_xlabel("")
+            axes[1, 1].set_ylabel("Proportion of errors")
+            axes[1, 1].set_xticklabels(
+                [PAPER_LABELS.get(label, label.title()) for label in error_summary.index],
+                rotation=20,
+                ha="right",
+            )
+            axes[1, 1].set_ylim(0, 1.05)
+            axes[1, 1].yaxis.set_major_formatter(lambda value, _: f"{value:.0%}")
+            axes[1, 1].legend(["Order", "Omission", "Intrusion"], loc="upper right", fontsize=7)
+            axes[1, 1].grid(axis="y")
+        else:
+            axes[1, 1].set_visible(False)
+        _save_paper_figure(fig, out_dir, "figure_4_serial_manipulations")
+        plt.close(fig)
+
+
 def run_analysis(data_dir, out_dir, file_pattern, dataset_name):
     """Run all standard analyses and return the pooled trial dataframe."""
     out_dir = _prepare_output_dir(out_dir)
@@ -620,6 +942,7 @@ def run_analysis(data_dir, out_dir, file_pattern, dataset_name):
     analyse_chunking(df, out_dir)
     analyse_errors(df, out_dir)
     quality_checks(df, out_dir)
+    make_paper_figures(df, out_dir)
 
     print(
         "\nAnalysis complete.\n"

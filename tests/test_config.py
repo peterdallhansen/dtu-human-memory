@@ -14,10 +14,10 @@ from pilot import (
 
 
 def test_final_trial_count_matches_documented_design():
-    assert final_experiment.TOTAL_TRIALS == 12
+    assert final_experiment.TOTAL_TRIALS == 14
     assert len(final_experiment.EXPERIMENTS["free_recall"]) == 4
     assert final_experiment.EXPERIMENTS["capacity"]["lengths"] == [4, 6, 8, 10]
-    assert len(final_experiment.EXPERIMENTS["phonological"]) == 2
+    assert len(final_experiment.EXPERIMENTS["phonological"]) == 4
     assert final_experiment.EXPERIMENTS["chunking"]["groups_per_trial"] == 6
     assert len(final_experiment.EXPERIMENTS["chunking"]["conditions"]) == 2
     assert not hasattr(final_experiment, "BREAK_EVERY_TRIALS")
